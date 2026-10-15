@@ -1,6 +1,6 @@
 # SwarmPeg
 
-An immutable Ethereum Uniswap v4 hook launch paired with **IMD**. SwarmPeg is a fixed-supply ERC-20 whose whole-token balances own implicit animated glyphs. `SwarmPegHook` charges **2% in IMD on buys and sells**, records trade-derived art entropy and a swarm pulse, and renders SVG and JSON entirely on chain. **100% of the hook fee goes to an ownerless maintenance pot.**
+An immutable Ethereum Uniswap v4 hook launch paired with **IMD**. SwarmPeg is a fixed-supply ERC-20 whose whole-token balances own implicit animated glyphs. `SwarmPegHook` charges **2% in IMD on buys and sells**, records trade-derived art entropy and a swarm pulse, and renders SVG and JSON entirely on chain. **100% of the hook fee goes to an ownerless maintenance pot deployed automatically by the hook's constructor.**
 
 There are no owner, mint-after-construction, pause, upgrade, fee-setting, renderer-setting, or discretionary pulse-setting functions. Maintenance votes authorize payments only; they cannot change these contracts.
 
@@ -12,10 +12,16 @@ forge test
 forge fmt --check
 ```
 
-The repository vendors every Solidity dependency as ordinary files. No installation, network, environment variables, filesystem cheatcode permission, FFI, or external service is needed for the default suite. Solidity **0.8.26**, Cancun, optimizer 200, `via_ir = true`, and `bytecode_hash = "none"` are pinned in `foundry.toml`. Fuzzing pins the assignment's seed:
+The repository vendors every Solidity dependency as ordinary files. No installation, network, environment variables, filesystem cheatcode permission, FFI, or external service is needed for the default suite. Solidity **0.8.26**, Cancun, optimizer 200, `via_ir = true`, and `bytecode_hash = "none"` are pinned in `foundry.toml`. The existing configuration pins this fuzz seed:
 
 ```
 0x7dd329dcb6426b6a7b3236d84ade60085e6047dcdeebfd61a8f354d852d6fc70
+```
+
+The constructor follow-up is also checked with its supplied seed, without changing the build configuration:
+
+```sh
+FOUNDRY_FUZZ_SEED=0x758442a8444751989b11690c736d23a2dbee4bbc6c268031ce2455f1aa5c282e forge test
 ```
 
 See [validation and security review](docs/SECURITY.md) and [dependency revisions](docs/dependencies.json). The optional `mainnet` profile reads tests in `rehearsal/`; it requires an explicitly supplied Ethereum fork URL and block. It is separate from the offline suite. For example, use `FOUNDRY_PROFILE=mainnet forge test --fork-url <your-authorized-Ethereum-RPC> --fork-block-number 26198120`. No test reads configuration from the environment.
@@ -25,12 +31,14 @@ See [validation and security review](docs/SECURITY.md) and [dependency revisions
 | Contract | Constructor, in ABI order | Responsibility |
 | --- | --- | --- |
 | `SwarmPeg` | None | Mint exactly `1_000_000_000e18` once to its deploying factory; ERC-20 transfers and compact glyph ownership |
-| `SwarmMaintenance` | `IPoolManager manager_`, `IERC20 token_` | Receive IMD fee claims, redeem them, escrow votes, pay approved jobs |
-| `SwarmPegHook` | `IPoolManager manager_`, `SwarmPeg token_`, `address maintenancePot_`, `address factory_` | Validate its pool, charge fees, record pulse and trade entropy, render glyphs |
+| `SwarmPegHook` | `IPoolManager manager_`, `SwarmPeg token_`, `address factory_` | Deploy its treasury, validate its pool, charge fees, record pulse and trade entropy, render glyphs |
+| `SwarmMaintenance` | `IPoolManager manager_`, `IERC20 token_` — supplied internally by the hook | Receive IMD fee claims, redeem them, escrow votes, pay approved jobs |
 
-Deployment parameters are the launch's actual PoolManager (`$poolManager`), launch token (`$token`), deployed `SwarmMaintenance` address, and launch factory (`$factory`). The pot and hook must use the **same** manager and token. Constructors make no calls to these dependencies and do not require deployed code. They reject zero configuration addresses. Neither the factory nor a transaction origin gains ownership. There is no `$owner` argument.
+The hook's only deployment parameters, in ABI order, are the launch's actual PoolManager (`$poolManager`), existing launch token (`$token`), and launch factory (`$factory`). The factory argument is required because `beforeInitialize` reserves first pool initialization to that factory. It grants no treasury, ownership, or upgrade authority, and is never inferred from `msg.sender` or `tx.origin`. There is no `$owner` or external maintenance address argument.
 
-The network must deploy the token, deploy the pot referencing that token, then deploy the mined hook referencing both. These are deployment dependencies, not requester-supplied outside services. `script/PrepareDeployment.s.sol` builds the exact hook creation code, mines bounded ranges of CREATE2 salts for the actual factory, and can validate the deployed dependency wiring. It never broadcasts or reads keys. Its functions are directly tested, including real CREATE2 deployment.
+The constructor executes `new SwarmMaintenance(manager_, token_)` and stores its address in `address public immutable maintenancePot`. Each hook receives a dedicated pot with the **same** manager and token. Creation is atomic: a treasury creation failure also reverts hook deployment. Constructors do not call the supplied manager/token or require them to have code; hook construction does deploy the treasury from its embedded creation bytecode. Zero configuration addresses and using IMD as the voting token are rejected.
+
+Deploy the mined hook using the existing token, then discover its treasury through `hook.maintenancePot()`. No separate treasury deployment, registration, placeholder address, or post-launch setter is needed. This change requires no token replacement or mint. `script/PrepareDeployment.s.sol` accepts `Config(manager, token, factory)`, builds the exact hook creation code, mines bounded ranges of CREATE2 salts for the actual factory, and validates deployed wiring via `validateDeployedDependencies(config, hook)`. It never broadcasts or reads keys. Its functions are directly tested, including real CREATE2 deployment. The new creation bytecode requires mining a new salt; salts from the former four-argument constructor must not be reused without recalculation.
 
 Fixed pool terms:
 

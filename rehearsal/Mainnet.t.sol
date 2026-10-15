@@ -28,13 +28,12 @@ contract MainnetPairRehearsalTest is HookTests {
         assertEq(imd.symbol(), "IMD");
         assertEq(imd.decimals(), 18);
         deal(address(imd), address(this), 100_000_000 ether);
-        pot = new SwarmMaintenance(manager, token);
         address hookAddress = address(uint160(0x10000000) | HookFlags.SWARMPEG);
         _constructAt(
-            hookAddress,
-            abi.encodePacked(type(SwarmPegHook).creationCode, abi.encode(manager, token, address(pot), address(this)))
+            hookAddress, abi.encodePacked(type(SwarmPegHook).creationCode, abi.encode(manager, token, address(this)))
         );
         hook = SwarmPegHook(hookAddress);
+        pot = SwarmMaintenance(hook.maintenancePot());
         router = new PoolHarness(manager);
         bool tokenFirst = address(token) < address(imd);
         key = PoolKey(

@@ -13,6 +13,7 @@ import {BeforeSwapDelta, toBeforeSwapDelta} from "v4-core/src/types/BeforeSwapDe
 import {Base64} from "@openzeppelin/contracts/utils/Base64.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {SwarmPeg} from "./SwarmPeg.sol";
+import {SwarmMaintenance} from "./SwarmMaintenance.sol";
 import {GlyphRenderer} from "./GlyphRenderer.sol";
 import {LaunchConstants} from "./LaunchConstants.sol";
 
@@ -25,6 +26,7 @@ contract SwarmPegHook {
 
     IPoolManager public immutable poolManager;
     SwarmPeg public immutable token;
+    /// @notice Dedicated ownerless treasury deployed by this hook during construction.
     address public immutable maintenancePot;
     address public immutable launchFactory;
     address public constant PAIRED_ASSET = LaunchConstants.IMD;
@@ -58,16 +60,17 @@ contract SwarmPegHook {
     event TradeRecorded(uint256 indexed number, uint256 indexed blockNumber, address indexed router, bytes32 entropy);
     event PulseUpdated(uint256 indexed blockNumber, uint256 previousPulse, uint256 pulse);
 
-    constructor(IPoolManager manager_, SwarmPeg token_, address maintenancePot_, address factory_) {
+    /// @param factory_ Authorized pool initializer; receives no treasury or upgrade powers.
+    constructor(IPoolManager manager_, SwarmPeg token_, address factory_) {
         if (
-            address(manager_) == address(0) || address(token_) == address(0) || maintenancePot_ == address(0)
-                || factory_ == address(0) || address(token_) == PAIRED_ASSET
+            address(manager_) == address(0) || address(token_) == address(0) || factory_ == address(0)
+                || address(token_) == PAIRED_ASSET
         ) revert InvalidAddress();
         poolManager = manager_;
         token = token_;
-        maintenancePot = maintenancePot_;
         launchFactory = factory_;
         Hooks.validateHookPermissions(IHooks(address(this)), getHookPermissions());
+        maintenancePot = address(new SwarmMaintenance(manager_, token_));
     }
 
     modifier onlyPoolManager() {

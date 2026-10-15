@@ -47,13 +47,12 @@ abstract contract Fixture is Test {
         _constructAt(
             address(imd), abi.encodePacked(type(MockERC20).creationCode, abi.encode("IdentityMD", "IMD", 1e30))
         );
-        pot = new SwarmMaintenance(manager, token);
         address hookAddress = address(uint160(0x10000000) | HookFlags.SWARMPEG);
         _constructAt(
-            hookAddress,
-            abi.encodePacked(type(SwarmPegHook).creationCode, abi.encode(manager, token, address(pot), address(this)))
+            hookAddress, abi.encodePacked(type(SwarmPegHook).creationCode, abi.encode(manager, token, address(this)))
         );
         hook = SwarmPegHook(hookAddress);
+        pot = SwarmMaintenance(hook.maintenancePot());
         router = new PoolHarness(manager);
         key = PoolKey(
             Currency.wrap(tokenFirst ? address(token) : address(imd)),
@@ -69,6 +68,8 @@ abstract contract Fixture is Test {
     }
 
     function _constructAt(address target, bytes memory creationCode) internal {
+        // Match CREATE/CREATE2's initial contract nonce so constructor children use nonce 1.
+        vm.setNonce(target, 1);
         vm.etch(target, creationCode);
         (bool ok, bytes memory runtime) = target.call("");
         require(ok, "construction failed");

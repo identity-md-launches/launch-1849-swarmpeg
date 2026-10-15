@@ -30,6 +30,11 @@ abstract contract HookTests is Fixture {
         assertTrue(HookFlags.matches(address(hook), HookFlags.SWARMPEG));
         assertTrue(hook.initialized());
         assertEq(PoolId.unwrap(hook.poolId()), PoolId.unwrap(key.toId()));
+        assertEq(hook.maintenancePot(), address(pot));
+        assertEq(address(pot), vm.computeCreateAddress(address(hook), 1));
+        assertGt(address(pot).code.length, 0);
+        assertEq(address(pot.poolManager()), address(manager));
+        assertEq(address(pot.votingToken()), address(token));
         assertLe(address(hook).code.length, 24576);
     }
 
@@ -91,6 +96,7 @@ abstract contract HookTests is Fixture {
             ) {
                 (bool loggedBuy, uint256 paired, uint256 charged) = abi.decode(logs[i].data, (bool, uint256, uint256));
                 assertEq(loggedBuy, buy);
+                assertEq(address(uint160(uint256(logs[i].topics[2]))), address(pot));
                 fee = charged;
                 corePair = paired;
                 found = true;

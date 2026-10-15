@@ -6,6 +6,7 @@ import {SwarmPeg} from "../src/SwarmPeg.sol";
 import {SwarmPegHook} from "../src/SwarmPegHook.sol";
 import {SwarmMaintenance} from "../src/SwarmMaintenance.sol";
 import {HookFlags} from "../src/HookFlags.sol";
+import {LaunchConstants} from "../src/LaunchConstants.sol";
 
 /// @notice Read-only launch preparation. No wallet, environment, filesystem, or broadcast.
 /// Call with actual deployment parameters; the authorized network factory does the launch.
@@ -16,23 +17,25 @@ contract PrepareDeployment {
     struct Config {
         IPoolManager manager;
         SwarmPeg token;
-        SwarmMaintenance pot;
         address factory;
     }
 
     function creationCode(Config memory c) public pure returns (bytes memory) {
-        if (
-            address(c.manager) == address(0) || address(c.token) == address(0) || address(c.pot) == address(0)
-                || c.factory == address(0)
-        ) revert InvalidConfiguration();
-        return
-            abi.encodePacked(type(SwarmPegHook).creationCode, abi.encode(c.manager, c.token, address(c.pot), c.factory));
+        _validateConfig(c);
+        return abi.encodePacked(type(SwarmPegHook).creationCode, abi.encode(c.manager, c.token, c.factory));
     }
 
-    function validateDeployedDependencies(Config memory c) external view {
+    /// @notice Verify the deployed hook and discover its internally deployed treasury.
+    function validateDeployedDependencies(Config memory c, SwarmPegHook hook) external view {
+        _validateConfig(c);
         if (
-            address(c.pot.poolManager()) != address(c.manager) || address(c.pot.votingToken()) != address(c.token)
-                || c.token.totalSupply() != 1_000_000_000 ether || c.token.decimals() != 18
+            address(hook.poolManager()) != address(c.manager) || address(hook.token()) != address(c.token)
+                || hook.launchFactory() != c.factory
+        ) revert InvalidConfiguration();
+        SwarmMaintenance pot = SwarmMaintenance(hook.maintenancePot());
+        if (
+            address(pot.poolManager()) != address(c.manager) || address(pot.votingToken()) != address(c.token)
+                || c.token.totalSupply() != LaunchConstants.SUPPLY || c.token.decimals() != 18
         ) revert InvalidConfiguration();
     }
 
@@ -50,5 +53,12 @@ contract PrepareDeployment {
             if (HookFlags.matches(predicted, HookFlags.SWARMPEG)) return (salt, predicted);
         }
         revert SaltNotFound();
+    }
+
+    function _validateConfig(Config memory c) private pure {
+        if (
+            address(c.manager) == address(0) || address(c.token) == address(0) || c.factory == address(0)
+                || address(c.token) == LaunchConstants.IMD
+        ) revert InvalidConfiguration();
     }
 }
